@@ -1,0 +1,77 @@
+name: GitHub Classroom Workflow
+
+on:
+  push:
+    branches:
+    - '*'
+    - '!badges'
+
+jobs:
+  build:
+    name: Autograding
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.6.15
+
+      # add id to action so outputs can be used
+      - uses: WCU-CS-CooperLab/autofeedback-s@v1.0
+        id: autograder
+        continue-on-error: true
+
+      - uses: ebrain-lab/split-by@master
+        id: split
+        with:
+           string: "${{ steps.autograder.outputs.points }}"
+           split-by: '/'
+      
+
+      # make dir for badges
+      - name: badges branch and make dir
+        run: |
+          git checkout badges 2>/dev/null || git checkout -b badges
+          mkdir -p .github/badges
+      # make points badge
+      - name: points badge
+        uses: emibcn/badge-action@v2.0.2
+        id: pbadge
+        with:
+          label: 'Points'
+          status: ${{ steps.autograder.outputs.points }}
+          color: ${{
+             steps.split.outputs._0 > 80 && 'green'               ||
+             steps.split.outputs._0 > 60 && 'yellow,yellow,green' ||
+             steps.split.outputs._0 > 50 && 'orange,yellow,green'  ||
+             steps.split.outputs._0 > 40 && 'orange,orange,yellow'  ||
+             'red' }}
+          path: '.github/badges/points.svg'
+
+      - name: Upload badge as artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: badge
+          path: '.github/badges/points.svg'
+          if-no-files-found: error
+
+      # commit and push badge if score has changed
+      - name: Commit badge
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add '.github/badges/points.svg'
+          git commit -m "Add/Update badge"
+        continue-on-error: true
+      - name: Push badge commit
+        uses: ad-m/github-push-action@master
+        if: success()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: badges
+          force: true
+      - name: Check on failures
+        if: steps.split.outputs._0 < 80
+        run: echo "score ${{ steps.split.outputs._0 }},  ${{steps.autograder.outputs.points}} is under 80/100, Check Run WCU-CS-CooperLab/autofeedback-s@v1.0 for feedback. " && exit 1
